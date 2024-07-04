@@ -1,0 +1,963 @@
+//
+//  main.cpp
+//  HyperMorph5
+//
+//  Created by shaun gerrard on 30/6/2024.
+//
+
+#include <iostream>
+#include <vector>
+#include <complex>
+#include <random>
+#include <cmath>
+#include <numeric>
+#include <functional>
+#include <chrono>
+#include <unordered_map>
+#include <set>
+#include <memory>
+#include <algorithm>
+#include <unicode/unistr.h>
+#include <unicode/uchar.h>
+#include <fftw3.h>
+
+// Custom hash function for std::vector<std::complex<double>>
+namespace std {
+    template<>
+    struct hash<vector<complex<double>>> {
+        size_t operator()(const vector<complex<double>>& v) const {
+            size_t seed = v.size();
+            for(const auto& i : v) {
+                seed ^= hash<double>()(i.real()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+                seed ^= hash<double>()(i.imag()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+            }
+            return seed;
+        }
+    };
+}
+
+class FBM {
+public:
+    FBM(double h, double sigma) : h(h), sigma(sigma) {}
+
+    double noise(double t) const {
+        return sigma * std::pow(t, h) * std::sin(2.0 * M_PI * t);
+    }
+
+private:
+    double h;
+    double sigma;
+};
+
+class DynamicUnicodeEncoding {
+private:
+    std::unordered_map<UChar32, std::vector<std::complex<double>>> charToVector;
+    std::unordered_map<std::vector<std::complex<double>>, UChar32> vectorToChar;
+    std::mt19937 rng;
+    static constexpr size_t vectorSize = 8;
+
+public:
+    DynamicUnicodeEncoding() : rng(std::random_device{}()) {
+        initializeEncoding();
+    }
+
+    void initializeEncoding() {
+        for (UChar32 c = 0; c <= 0x10FFFF; ++c) {
+            if (u_isdefined(c)) {
+                std::vector<std::complex<double>> vec = generateRandomVector();
+                charToVector[c] = vec;
+                vectorToChar[vec] = c;
+            }
+        }
+    }
+
+    std::vector<std::complex<double>> generateRandomVector() {
+        std::vector<std::complex<double>> vec(vectorSize);
+        std::uniform_real_distribution<> dis(-1.0, 1.0);
+        for (auto& v : vec) {
+            v = std::complex<double>(dis(rng), dis(rng));
+        }
+        return vec;
+    }
+    std::vector<std::complex<double>> encode(UChar32 c) const {
+        auto it = charToVector.find(c);
+        if (it == charToVector.end()) {
+            // Character not found, return a default vector or throw an exception
+            return std::vector<std::complex<double>>(vectorSize, std::complex<double>(0, 0));
+        }
+        return it->second;
+    }
+
+    UChar32 decode(const std::vector<std::complex<double>>& vec) const {
+        auto it = vectorToChar.find(vec);
+        if (it == vectorToChar.end()) {
+            // Vector not found, return a default character or throw an exception
+            return 0xFFFD; // Unicode replacement character
+        }
+        return it->second;
+    }
+
+    void evolve() {
+        std::vector<UChar32> chars;
+        chars.reserve(charToVector.size());
+        for (const auto& pair : charToVector) {
+            chars.push_back(pair.first);
+        }
+
+        std::shuffle(chars.begin(), chars.end(), rng);
+
+        for (size_t i = 0; i < chars.size() - 1; i += 2) {
+            UChar32 c1 = chars[i];
+            UChar32 c2 = chars[i + 1];
+
+            auto& vec1 = charToVector[c1];
+            auto& vec2 = charToVector[c2];
+
+            // Crossover
+            size_t crossoverPoint = static_cast<size_t>(rng()) % vectorSize;
+            for (size_t j = crossoverPoint; j < vectorSize; ++j) {
+                std::swap(vec1[j], vec2[j]);
+            }
+
+            // Mutation
+            std::uniform_real_distribution<> dis(-0.1, 0.1);
+            for (auto& v : vec1) {
+                v += std::complex<double>(dis(rng), dis(rng));
+            }
+            for (auto& v : vec2) {
+                v += std::complex<double>(dis(rng), dis(rng));
+            }
+
+            // Update reverse mapping
+            vectorToChar[vec1] = c1;
+            vectorToChar[vec2] = c2;
+            
+        }
+    }
+};
+
+class AdvancedTransformations {
+private:
+    std::mt19937 rng;
+
+public:
+    AdvancedTransformations() : rng(std::random_device{}()) {}
+
+    std::vector<std::complex<double>> applyFourierTransform(const std::vector<std::complex<double>>& data) {
+        std::vector<std::complex<double>> result(data.size());
+        fftw_plan plan = fftw_plan_dft_1d(static_cast<int>(data.size()),
+                                          reinterpret_cast<fftw_complex*>(const_cast<std::complex<double>*>(data.data())),
+                                          reinterpret_cast<fftw_complex*>(result.data()),
+                                          FFTW_FORWARD, FFTW_ESTIMATE);
+        fftw_execute(plan);
+        fftw_destroy_plan(plan);
+        return result;
+    }
+
+    std::vector<std::complex<double>> applyInverseFourierTransform(const std::vector<std::complex<double>>& data) {
+        std::vector<std::complex<double>> result(data.size());
+        fftw_plan plan = fftw_plan_dft_1d(static_cast<int>(data.size()),
+                                          reinterpret_cast<fftw_complex*>(const_cast<std::complex<double>*>(data.data())),
+                                          reinterpret_cast<fftw_complex*>(result.data()),
+                                          FFTW_BACKWARD, FFTW_ESTIMATE);
+        fftw_execute(plan);
+        fftw_destroy_plan(plan);
+        for (auto& v : result) {
+            v /= data.size(); // Normalization
+        }
+        return result;
+    }
+
+    std::vector<std::complex<double>> applyFractalTransform(const std::vector<std::complex<double>>& data) {
+        std::vector<std::complex<double>> result = data;
+        std::uniform_real_distribution<> dis(0.0, 1.0);
+        double r = 3.7 + 0.3 * dis(rng); // Chaotic range for logistic map
+        
+        for (size_t i = 0; i < data.size(); ++i) {
+            double x = std::abs(result[i]);
+            x = r * x * (1 - x); // Logistic map
+            result[i] *= std::polar(1.0, x * 2 * M_PI);
+        }
+        
+        return result;
+    }
+
+    std::vector<std::complex<double>> applyWaveletTransform(const std::vector<std::complex<double>>& data) {
+        std::vector<std::complex<double>> result = data;
+        size_t n = data.size();
+        
+        while (n > 1) {
+            n /= 2;
+            for (size_t i = 0; i < n; ++i) {
+                result[i] = (data[2*i] + data[2*i+1]) / std::sqrt(2.0);
+                result[n+i] = (data[2*i] - data[2*i+1]) / std::sqrt(2.0);
+            }
+        }
+        
+        return result;
+    }
+
+    std::vector<std::complex<double>> applyInverseWaveletTransform(const std::vector<std::complex<double>>& data) {
+        std::vector<std::complex<double>> result = data;
+        size_t n = 2;
+        
+        while (n <= data.size()) {
+            std::vector<std::complex<double>> temp(n);
+            for (size_t i = 0; i < n / 2; ++i) {
+                temp[2 * i] = (result[i] + result[n / 2 + i]) / std::sqrt(2.0);
+                temp[2 * i + 1] = (result[i] - result[n / 2 + i]) / std::sqrt(2.0);
+            }
+            std::copy(temp.begin(), temp.end(), result.begin());
+            n *= 2;
+        }
+        
+        return result;
+    }
+
+    std::vector<std::complex<double>> applyInverseFractalTransform(const std::vector<std::complex<double>>& data) {
+        // This is an approximation, as the true inverse of a chaotic function is challenging
+        return data;
+    }
+};
+
+class LatticeSymbolBase {
+public:
+    virtual ~LatticeSymbolBase() = default;
+    virtual std::vector<std::complex<double>> getEncrypted() const = 0;
+    virtual void setEncrypted(const std::vector<std::complex<double>>& encrypted) = 0;
+    virtual std::vector<std::string> getColors() const = 0;
+    virtual void setColors(const std::vector<std::string>& colors) = 0;
+    virtual std::vector<size_t> getComplexity() const = 0;
+    virtual void setComplexity(const std::vector<size_t>& complexity) = 0;
+    virtual std::unique_ptr<LatticeSymbolBase> clone() const = 0;
+    virtual std::vector<std::complex<double>> getHypermorphicData() const = 0;
+    virtual void setHypermorphicData(const std::vector<std::complex<double>>& data) = 0;
+};
+
+class LatticeSymbol : public LatticeSymbolBase {
+private:
+    std::vector<int> polynomial;
+    size_t complexity;
+    std::vector<std::complex<double>> encrypted;
+    std::vector<std::string> colors;
+    std::vector<std::complex<double>> hypermorphicData;
+
+public:
+    std::vector<std::complex<double>> getEncrypted() const override {
+        return encrypted;
+    }
+
+    void setEncrypted(const std::vector<std::complex<double>>& encrypted) override {
+        this->encrypted = encrypted;
+    }
+
+    std::vector<std::string> getColors() const override {
+        return colors;
+    }
+
+    void setColors(const std::vector<std::string>& colors) override {
+        this->colors = colors;
+    }
+
+    std::vector<size_t> getComplexity() const override {
+        return std::vector<size_t>{complexity};
+    }
+
+    void setComplexity(const std::vector<size_t>& complexity) override {
+        if (!complexity.empty()) {
+            this->complexity = complexity[0];
+        }
+    }
+
+    std::vector<std::complex<double>> getHypermorphicData() const override {
+        return hypermorphicData;
+    }
+
+    void setHypermorphicData(const std::vector<std::complex<double>>& data) override {
+        hypermorphicData = data;
+    }
+
+    std::unique_ptr<LatticeSymbolBase> clone() const override {
+        return std::make_unique<LatticeSymbol>(*this);
+    }
+};
+
+std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<LatticeSymbol>>>>>>>> createLattice(
+    int width, int height, int depth, int time, int energy, int dimension7, int dimension8) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> distribution(-10, 10);
+    std::uniform_real_distribution<double> complexDist(0, 1);
+
+    std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<LatticeSymbol>>>>>>>> lattice(
+        width, std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<LatticeSymbol>>>>>>>(
+            height, std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<LatticeSymbol>>>>>>(
+                depth, std::vector<std::vector<std::vector<std::vector<std::vector<LatticeSymbol>>>>>(
+                    time, std::vector<std::vector<std::vector<std::vector<LatticeSymbol>>>>(
+                        energy, std::vector<std::vector<std::vector<LatticeSymbol>>>(
+                            dimension7, std::vector<std::vector<LatticeSymbol>>(
+                                dimension8, std::vector<LatticeSymbol>(1)
+                            )
+                        )
+                    )
+                )
+            )
+        )
+    );
+
+    for (auto& symbolLayer1 : lattice) {
+        for (auto& symbolLayer2 : symbolLayer1) {
+            for (auto& symbolLayer3 : symbolLayer2) {
+                for (auto& symbolLayer4 : symbolLayer3) {
+                    for (auto& symbolLayer5 : symbolLayer4) {
+                        for (auto& symbolLayer6 : symbolLayer5) {
+                            for (auto& symbolLayer7 : symbolLayer6) {
+                                for (auto& symbol : symbolLayer7) {
+                                    int numCoefficients = 256;
+                                    symbol.setComplexity({static_cast<size_t>(gen() % 100)});
+                                    
+                                    std::vector<std::complex<double>> hypermorphicData(4);
+                                    for (auto& v : hypermorphicData) {
+                                        v = std::complex<double>(complexDist(gen), complexDist(gen));
+                                    }
+                                    symbol.setHypermorphicData(hypermorphicData);
+                                    
+                                    std::vector<std::complex<double>> encrypted(numCoefficients);
+                                    for (int j = 0; j < numCoefficients; j++) {
+                                        encrypted[j] = std::complex<double>(distribution(gen), distribution(gen));
+                                    }
+                                    symbol.setEncrypted(encrypted);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return lattice;
+}
+
+template <size_t N>
+class HypermorphicAdaptiveHoloprismFHE {
+private:
+    FBM fbm;
+    DynamicUnicodeEncoding unicodeEncoding;
+    AdvancedTransformations transformations;
+    std::vector<std::function<std::vector<std::complex<double>>(std::vector<std::complex<double>>)>> activeTransformations;
+    std::vector<std::function<std::vector<std::complex<double>>(std::vector<std::complex<double>>)>> inverseTransformations;
+    std::mt19937 rng;
+    std::unordered_map<size_t, size_t> moduloBases;
+
+    public:
+        HypermorphicAdaptiveHoloprismFHE(double h, double sigma) : fbm(h, sigma), rng(std::random_device{}()) {
+            initializeTransformations();
+        }
+
+        void initializeTransformations() {
+            activeTransformations = {
+                [this](std::vector<std::complex<double>> data) { return this->applyHypermorphism(data); },
+                [this](std::vector<std::complex<double>> data) { return transformations.applyFourierTransform(data); },
+                [this](std::vector<std::complex<double>> data) { return transformations.applyWaveletTransform(data); },
+                [this](std::vector<std::complex<double>> data) { return transformations.applyFractalTransform(data); }
+            };
+
+            inverseTransformations = {
+                [this](std::vector<std::complex<double>> data) { return this->removeHypermorphism(data); },
+                [this](std::vector<std::complex<double>> data) { return transformations.applyInverseFourierTransform(data); },
+                [this](std::vector<std::complex<double>> data) { return transformations.applyInverseWaveletTransform(data); },
+                [this](std::vector<std::complex<double>> data) { return transformations.applyInverseFractalTransform(data); }
+            };
+        }
+
+    std::vector<std::vector<std::complex<double>>> hypermorphicEncryptMessage(const icu::UnicodeString& message,
+                                                               const std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<LatticeSymbol>>>>>>>>& lattice) {
+        std::vector<std::vector<std::complex<double>>> encryptedMessage;
+        for (int32_t i = 0; i < message.length(); ++i) {
+            UChar32 c = message.char32At(i);
+            std::cout << "Encrypting character: " << std::hex << c << std::endl;
+            auto encoded = unicodeEncoding.encode(c);
+            auto encrypted = encryptSymbol(encoded);
+            auto hypermorphic = applyAdaptiveHypermorphism(encrypted);
+            encryptedMessage.push_back(hypermorphic);
+        }
+        return encryptedMessage;
+    }
+
+    icu::UnicodeString hypermorphicDecryptMessage(const std::vector<std::vector<std::complex<double>>>& encryptedMessage,
+                               const std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<std::vector<LatticeSymbol>>>>>>>>& lattice) {
+        icu::UnicodeString decryptedMessage;
+        for (const auto& encryptedSymbol : encryptedMessage) {
+            auto deHypermorphed = removeAdaptiveHypermorphism(encryptedSymbol);
+            auto decryptedSymbol = decryptSymbol(deHypermorphed);
+            std::cout << "Decrypted symbol size: " << decryptedSymbol.size() << std::endl;
+            UChar32 c = unicodeEncoding.decode(decryptedSymbol);
+            std::cout << "Decrypted character: " << std::hex << c << std::endl;
+            decryptedMessage.append(c);
+        }
+        return decryptedMessage;
+    }
+
+        std::vector<std::complex<double>> applyAdaptiveHypermorphism(const std::vector<std::complex<double>>& data) {
+            std::vector<std::complex<double>> result = data;
+            for (const auto& transformation : activeTransformations) {
+                result = transformation(result);
+            }
+            return result;
+        }
+
+        std::vector<std::complex<double>> removeAdaptiveHypermorphism(const std::vector<std::complex<double>>& data) {
+            std::vector<std::complex<double>> result = data;
+            for (auto it = inverseTransformations.rbegin(); it != inverseTransformations.rend(); ++it) {
+                result = (*it)(result);
+            }
+            return result;
+        }
+
+        std::vector<std::complex<double>> applyHypermorphism(const std::vector<std::complex<double>>& data) {
+            std::vector<std::complex<double>> result = data;
+            double morphFactor = calculateMorphFactor(data);
+            
+            for (auto& value : result) {
+                value *= std::polar(1.0, morphFactor * std::arg(value));
+                value += std::complex<double>(std::cos(morphFactor), std::sin(morphFactor));
+            }
+            
+            return result;
+        }
+
+        std::vector<std::complex<double>> removeHypermorphism(const std::vector<std::complex<double>>& data) {
+            std::vector<std::complex<double>> result = data;
+            double morphFactor = calculateMorphFactor(data);
+            
+            for (auto& value : result) {
+                value -= std::complex<double>(std::cos(morphFactor), std::sin(morphFactor));
+                value *= std::polar(1.0, -morphFactor * std::arg(value));
+            }
+            
+            return result;
+        }
+
+        double calculateMorphFactor(const std::vector<std::complex<double>>& data) {
+            double sum = 0.0;
+            for (const auto& value : data) {
+                sum += std::abs(value);
+            }
+            return std::fmod(sum, 2 * M_PI);
+        }
+
+        void evolveEfficiency() {
+            unicodeEncoding.evolve();
+            evolveTransformations();
+        }
+
+        std::vector<size_t> generateComplexity() {
+            std::vector<size_t> complexity;
+            std::uniform_int_distribution<size_t> dis(0, 1ULL << 63);
+            size_t value = dis(rng);
+            size_t base = getModuloBase(value);
+            complexity = toBase(value, base);
+            return complexity;
+        }
+
+        std::vector<std::complex<double>> homomorphicAdd(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+            std::vector<std::complex<double>> result(a.size());
+            for (size_t i = 0; i < a.size(); ++i) {
+                result[i] = a[i] + b[i];
+            }
+            return applyAdaptiveHypermorphism(result);
+        }
+
+        std::vector<std::complex<double>> homomorphicSubtract(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+            std::vector<std::complex<double>> result(a.size());
+            for (size_t i = 0; i < a.size(); ++i) {
+                result[i] = a[i] - b[i];
+            }
+            return applyAdaptiveHypermorphism(result);
+        }
+
+        std::vector<std::complex<double>> homomorphicMultiply(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+            std::vector<std::complex<double>> result(a.size());
+            for (size_t i = 0; i < a.size(); ++i) {
+                result[i] = a[i] * b[i];
+            }
+            return applyAdaptiveHypermorphism(result);
+        }
+
+        std::vector<std::complex<double>> homomorphicDivide(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+            std::vector<std::complex<double>> result(a.size());
+            for (size_t i = 0; i < a.size(); ++i) {
+                result[i] = a[i] / b[i];
+            }
+            return applyAdaptiveHypermorphism(result);
+        }
+
+        std::vector<std::complex<double>> homomorphicRotate(const std::vector<std::complex<double>>& a, double angle) {
+            std::vector<std::complex<double>> result(a.size());
+            for (size_t i = 0; i < a.size(); ++i) {
+                result[i] = a[i] * std::polar(1.0, angle);
+            }
+            return applyAdaptiveHypermorphism(result);
+        }
+
+        std::vector<std::complex<double>> homomorphicConjugate(const std::vector<std::complex<double>>& a) {
+            std::vector<std::complex<double>> result(a.size());
+            for (size_t i = 0; i < a.size(); ++i) {
+                result[i] = std::conj(a[i]);
+            }
+            return applyAdaptiveHypermorphism(result);
+        }
+
+        std::vector<std::complex<double>> homomorphicInverse(const std::vector<std::complex<double>>& a) {
+            std::vector<std::complex<double>> result(a.size());
+            for (size_t i = 0; i < a.size(); ++i) {
+                result[i] = 1.0 / a[i];
+            }
+            return applyAdaptiveHypermorphism(result);
+        }
+
+        std::vector<std::complex<double>> homomorphicExponentiate(const std::vector<std::complex<double>>& a, double exponent) {
+            std::vector<std::complex<double>> result(a.size());
+            for (size_t i = 0; i < a.size(); ++i) {
+                result[i] = std::pow(a[i], exponent);
+            }
+            return applyAdaptiveHypermorphism(result);
+        }
+
+        std::vector<std::complex<double>> homomorphicLogarithm(const std::vector<std::complex<double>>& a) {
+            std::vector<std::complex<double>> result(a.size());
+            for (size_t i = 0; i < a.size(); ++i) {
+                result[i] = std::log(a[i]);
+            }
+            return applyAdaptiveHypermorphism(result);
+        }
+
+        std::vector<std::complex<double>> homomorphicSquareRoot(const std::vector<std::complex<double>>& a) {
+            std::vector<std::complex<double>> result(a.size());
+            for (size_t i = 0; i < a.size(); ++i) {
+                result[i] = std::sqrt(a[i]);
+            }
+            return applyAdaptiveHypermorphism(result);
+        }
+
+        std::vector<std::complex<double>> homomorphicAbsolute(const std::vector<std::complex<double>>& a) {
+            std::vector<std::complex<double>> result(a.size());
+            for (size_t i = 0; i < a.size(); ++i) {
+                result[i] = std::complex<double>(std::abs(a[i]), 0);
+            }
+            return applyAdaptiveHypermorphism(result);
+        }
+
+        std::vector<std::complex<double>> homomorphicMinimum(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+            std::vector<std::complex<double>> result(a.size());
+            for (size_t i = 0; i < a.size(); ++i) {
+                result[i] = std::abs(a[i]) < std::abs(b[i]) ? a[i] : b[i];
+            }
+            return applyAdaptiveHypermorphism(result);
+        }
+
+        std::vector<std::complex<double>> homomorphicMaximum(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+            std::vector<std::complex<double>> result(a.size());
+            for (size_t i = 0; i < a.size(); ++i) {
+                result[i] = std::abs(a[i]) > std::abs(b[i]) ? a[i] : b[i];
+            }
+            return applyAdaptiveHypermorphism(result);
+        }
+
+        std::vector<std::complex<double>> homomorphicEvaluate(const std::vector<std::vector<std::complex<double>>>& encryptedData,
+                                                              std::function<std::vector<std::complex<double>>(const std::vector<std::vector<std::complex<double>>>&)> fn) {
+            return applyAdaptiveHypermorphism(fn(encryptedData));
+        }
+
+        bool homomorphicCompare(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+            return std::accumulate(a.begin(), a.end(), std::complex<double>(0, 0)).real() <
+                   std::accumulate(b.begin(), b.end(), std::complex<double>(0, 0)).real();
+        }
+
+        bool homomorphicEqual(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+            return a == b;
+        }
+
+        std::shared_ptr<LatticeSymbolBase> homomorphicAdd(const std::shared_ptr<LatticeSymbolBase>& a, const std::shared_ptr<LatticeSymbolBase>& b) {
+            auto result = std::make_shared<LatticeSymbol>();
+            result->setEncrypted(homomorphicAdd(a->getEncrypted(), b->getEncrypted()));
+            result->setColors(mergeColors(a->getColors(), b->getColors()));
+            result->setComplexity(mergeComplexity(a->getComplexity(), b->getComplexity()));
+            result->setHypermorphicData(applyAdaptiveHypermorphism(a->getHypermorphicData()));
+            return result;
+        }
+
+        std::shared_ptr<LatticeSymbolBase> homomorphicMultiply(const std::shared_ptr<LatticeSymbolBase>& a, const std::shared_ptr<LatticeSymbolBase>& b) {
+            auto result = std::make_shared<LatticeSymbol>();
+            result->setEncrypted(homomorphicMultiply(a->getEncrypted(), b->getEncrypted()));
+            result->setColors(mergeColors(a->getColors(), b->getColors()));
+            result->setComplexity(mergeComplexity(a->getComplexity(), b->getComplexity()));
+            result->setHypermorphicData(applyAdaptiveHypermorphism(a->getHypermorphicData()));
+            return result;
+        }
+
+        std::vector<std::complex<double>> holomorphicExponentiate(const std::vector<std::complex<double>>& a, const std::vector<std::complex<double>>& b) {
+            std::vector<std::complex<double>> result(a.size());
+            for (size_t i = 0; i < a.size(); ++i) {
+                result[i] = std::pow(a[i], b[i]);
+            }
+            return applyAdaptiveHypermorphism(result);
+        }
+
+        std::shared_ptr<LatticeSymbolBase> foldAddition(const std::vector<std::shared_ptr<LatticeSymbolBase>>& encryptedData) {
+            return std::accumulate(encryptedData.begin() + 1, encryptedData.end(), encryptedData[0],
+                                           [this](const std::shared_ptr<LatticeSymbolBase>& acc, const std::shared_ptr<LatticeSymbolBase>& symbol) {
+                        return homomorphicAdd(acc, symbol);
+                    });
+                }
+
+                std::shared_ptr<LatticeSymbolBase> foldMultiplication(const std::vector<std::shared_ptr<LatticeSymbolBase>>& encryptedData) {
+                    return std::accumulate(encryptedData.begin() + 1, encryptedData.end(), encryptedData[0],
+                                           [this](const std::shared_ptr<LatticeSymbolBase>& acc, const std::shared_ptr<LatticeSymbolBase>& symbol) {
+                        return homomorphicMultiply(acc, symbol);
+                    });
+                }
+
+                std::shared_ptr<LatticeSymbolBase> foldRotation(const std::vector<std::shared_ptr<LatticeSymbolBase>>& encryptedData, double angle) {
+                    auto result = std::make_shared<LatticeSymbol>();
+                    auto accumulated = encryptedData[0]->getEncrypted();
+                    for (size_t i = 1; i < encryptedData.size(); ++i) {
+                        accumulated = homomorphicAdd(accumulated, homomorphicRotate(encryptedData[i]->getEncrypted(), angle));
+                    }
+                    result->setEncrypted(accumulated);
+                    result->setColors(mergeColors(encryptedData));
+                    result->setComplexity(mergeComplexity(encryptedData));
+                    result->setHypermorphicData(applyAdaptiveHypermorphism(accumulated));
+                    return result;
+                }
+
+            private:
+                std::vector<std::complex<double>> encryptSymbol(const std::vector<std::complex<double>>& symbol) {
+                    std::vector<std::complex<double>> encrypted = symbol;
+                    for (auto& value : encrypted) {
+                        value += generateNoise();
+                    }
+                    return encrypted;
+                }
+
+                std::vector<std::complex<double>> decryptSymbol(const std::vector<std::complex<double>>& encryptedSymbol) {
+                    std::vector<std::complex<double>> decrypted = encryptedSymbol;
+                    for (auto& value : decrypted) {
+                        value -= generateNoise();
+                    }
+                    return decrypted;
+                }
+
+                std::complex<double> generateNoise() {
+                    static std::uniform_real_distribution<> dis(-0.01, 0.01);
+                    double t = dis(rng);
+                    double realNoise = fbm.noise(t);
+                    double imagNoise = fbm.noise(1.0 - t);
+                    return std::complex<double>(realNoise, imagNoise);
+                }
+
+                void evolveTransformations() {
+                    std::vector<double> performanceMetrics(activeTransformations.size());
+                    std::vector<std::complex<double>> testData(1024);
+                    std::generate(testData.begin(), testData.end(), [this]() {
+                        return std::complex<double>(this->rng() / (double)this->rng.max(), this->rng() / (double)this->rng.max());
+                    });
+
+                    for (size_t i = 0; i < activeTransformations.size(); ++i) {
+                        auto start = std::chrono::high_resolution_clock::now();
+                        auto transformed = activeTransformations[i](testData);
+                        auto inverse = inverseTransformations[i](transformed);
+                        auto end = std::chrono::high_resolution_clock::now();
+
+                        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+                        double error = 0.0;
+                        for (size_t j = 0; j < testData.size(); ++j) {
+                            error += std::abs(testData[j] - inverse[j]);
+                        }
+
+                        performanceMetrics[i] = 1.0 / (duration.count() * error);
+                    }
+
+                    // Remove the worst performing transformation
+                    auto minElement = std::min_element(performanceMetrics.begin(), performanceMetrics.end());
+                    size_t worstIndex = std::distance(performanceMetrics.begin(), minElement);
+                    activeTransformations.erase(activeTransformations.begin() + worstIndex);
+                    inverseTransformations.erase(inverseTransformations.begin() + worstIndex);
+
+                    // Add a new random transformation
+                    std::uniform_int_distribution<> dis(0, 3);
+                    int newTransformType = dis(rng);
+                    switch (newTransformType) {
+                        case 0:
+                            activeTransformations.push_back([this](std::vector<std::complex<double>> data) { return this->applyHypermorphism(data); });
+                            inverseTransformations.push_back([this](std::vector<std::complex<double>> data) { return this->removeHypermorphism(data); });
+                            break;
+                        case 1:
+                            activeTransformations.push_back([this](std::vector<std::complex<double>> data) { return transformations.applyFourierTransform(data); });
+                            inverseTransformations.push_back([this](std::vector<std::complex<double>> data) { return transformations.applyInverseFourierTransform(data); });
+                            break;
+                        case 2:
+                            activeTransformations.push_back([this](std::vector<std::complex<double>> data) { return transformations.applyWaveletTransform(data); });
+                            inverseTransformations.push_back([this](std::vector<std::complex<double>> data) { return transformations.applyInverseWaveletTransform(data); });
+                            break;
+                        case 3:
+                            activeTransformations.push_back([this](std::vector<std::complex<double>> data) { return transformations.applyFractalTransform(data); });
+                            inverseTransformations.push_back([this](std::vector<std::complex<double>> data) { return transformations.applyInverseFractalTransform(data); });
+                            break;
+                    }
+                }
+
+                std::vector<std::string> mergeColors(const std::vector<std::string>& colors1, const std::vector<std::string>& colors2) {
+                    std::vector<std::string> mergedColors;
+                    std::set<std::string> uniqueColors(colors1.begin(), colors1.end());
+                    uniqueColors.insert(colors2.begin(), colors2.end());
+                    mergedColors.assign(uniqueColors.begin(), uniqueColors.end());
+                    return mergedColors;
+                }
+
+                std::vector<size_t> mergeComplexity(const std::vector<size_t>& complexity1, const std::vector<size_t>& complexity2) {
+                    std::vector<size_t> mergedComplexity;
+                    size_t maxComplexity = 0;
+                    if (!complexity1.empty()) {
+                        maxComplexity = complexity1[0];
+                    }
+                    if (!complexity2.empty()) {
+                        maxComplexity = std::max(maxComplexity, complexity2[0]);
+                    }
+                    mergedComplexity.push_back(maxComplexity);
+                    return mergedComplexity;
+                }
+
+                std::vector<std::string> mergeColors(const std::vector<std::shared_ptr<LatticeSymbolBase>>& symbols) {
+                    std::vector<std::string> mergedColors;
+                    for (const auto& symbol : symbols) {
+                        const auto& colors = symbol->getColors();
+                        mergedColors.insert(mergedColors.end(), colors.begin(), colors.end());
+                    }
+                    std::sort(mergedColors.begin(), mergedColors.end());
+                    mergedColors.erase(std::unique(mergedColors.begin(), mergedColors.end()), mergedColors.end());
+                    return mergedColors;
+                }
+
+                std::vector<size_t> mergeComplexity(const std::vector<std::shared_ptr<LatticeSymbolBase>>& symbols) {
+                    std::vector<size_t> mergedComplexity;
+                    for (const auto& symbol : symbols) {
+                        const auto& complexity = symbol->getComplexity();
+                        mergedComplexity = mergeComplexity(mergedComplexity, complexity);
+                    }
+                    return mergedComplexity;
+                }
+
+                template <typename T>
+                std::vector<T> toBase(size_t value, T base) {
+                    std::vector<T> digits;
+                    while (value > 0) {
+                        digits.push_back(static_cast<T>(value % base));
+                        value /= base;
+                    }
+                    std::reverse(digits.begin(), digits.end());
+                    return digits;
+                }
+
+                size_t getModuloBase(size_t value) {
+                    if (moduloBases.count(value) == 0) {
+                        size_t base = static_cast<size_t>(std::pow(value, 1.0 / 3.0)) + 1;
+                        moduloBases[value] = base;
+                    }
+                    return moduloBases[value];
+                }
+            };
+
+            int main() {
+                double h = 0.5, sigma = 0.0001;
+                HypermorphicAdaptiveHoloprismFHE<256> hfhe(h, sigma);
+
+                int width = 3, height = 3, depth = 2, time = 3, energy = 2, dimension7 = 2, dimension8 = 2;
+                auto lattice = createLattice(width, height, depth, time, energy, dimension7, dimension8);
+
+                icu::UnicodeString message = icu::UnicodeString::fromUTF8("Hello, 世界! This is an advanced Holoprism encryption test. 这是一个高级全息棱镜加密测试。");
+                std::cout << "Original message: ";
+                std::string utf8;
+                message.toUTF8String(utf8);
+                std::cout << utf8 << std::endl;
+
+                auto encrypted = hfhe.hypermorphicEncryptMessage(message, lattice);
+                std::cout << "Encrypted data size: " << encrypted.size() << std::endl;
+
+                auto decrypted = hfhe.hypermorphicDecryptMessage(encrypted, lattice);
+                std::cout << "Decrypted message: ";
+                decrypted.toUTF8String(utf8);
+                std::cout << utf8 << std::endl;
+
+                // Demonstrate Holoprism operations
+                auto encryptedChar1 = encrypted[0];
+                auto encryptedChar2 = encrypted[1];
+
+                auto encryptedSum = hfhe.homomorphicAdd(encryptedChar1, encryptedChar2);
+                auto encryptedProduct = hfhe.homomorphicMultiply(encryptedChar1, encryptedChar2);
+                auto encryptedRotated = hfhe.homomorphicRotate(encryptedChar1, M_PI / 4);
+
+                std::cout << "\nHomomorphic operations results:" << std::endl;
+                hfhe.hypermorphicDecryptMessage({encryptedSum}, lattice).toUTF8String(utf8);
+                std::cout << "Sum: " << utf8 << std::endl;
+                hfhe.hypermorphicDecryptMessage({encryptedProduct}, lattice).toUTF8String(utf8);
+                std::cout << "Product: " << utf8 << std::endl;
+                hfhe.hypermorphicDecryptMessage({encryptedRotated}, lattice).toUTF8String(utf8);
+                std::cout << "Rotated: " << utf8 << std::endl;
+
+                // Demonstrate evolution
+                std::cout << "\nEvolving the system...\n";
+                for (int i = 0; i < 10; ++i) {
+                    hfhe.evolveEfficiency();
+                    std::cout << "Evolution step " << i + 1 << " completed.\n";
+
+                    // Test encryption and decryption after each evolution step
+                    encrypted = hfhe.hypermorphicEncryptMessage(message, lattice);
+                    decrypted = hfhe.hypermorphicDecryptMessage(encrypted, lattice);
+                    decrypted.toUTF8String(utf8);
+                    std::cout << "Decrypted message after evolution: " << utf8 << std::endl;
+                }
+
+                // Demonstrate additional homomorphic operations
+                auto encryptedDifference = hfhe.homomorphicSubtract(encryptedChar1, encryptedChar2);
+                auto encryptedQuotient = hfhe.homomorphicDivide(encryptedChar1, encryptedChar2);
+                auto encryptedConjugate = hfhe.homomorphicConjugate(encryptedChar1);
+                auto encryptedInverse = hfhe.homomorphicInverse(encryptedChar1);
+                auto encryptedExponentiate = hfhe.homomorphicExponentiate(encryptedChar1, 2.5);
+                auto encryptedLogarithm = hfhe.homomorphicLogarithm(encryptedChar1);
+                auto encryptedSquareRoot = hfhe.homomorphicSquareRoot(encryptedChar1);
+                auto encryptedAbsolute = hfhe.homomorphicAbsolute(encryptedChar1);
+                auto encryptedMinimum = hfhe.homomorphicMinimum(encryptedChar1, encryptedChar2);
+                auto encryptedMaximum = hfhe.homomorphicMaximum(encryptedChar1, encryptedChar2);
+
+                std::cout << "\nAdditional Homomorphic Operations Results:" << std::endl;
+                hfhe.hypermorphicDecryptMessage({encryptedDifference}, lattice).toUTF8String(utf8);
+                std::cout << "Difference: " << utf8 << std::endl;
+                hfhe.hypermorphicDecryptMessage({encryptedQuotient}, lattice).toUTF8String(utf8);
+                std::cout << "Quotient: " << utf8 << std::endl;
+                hfhe.hypermorphicDecryptMessage({encryptedConjugate}, lattice).toUTF8String(utf8);
+                std::cout << "Conjugate: " << utf8 << std::endl;
+                hfhe.hypermorphicDecryptMessage({encryptedInverse}, lattice).toUTF8String(utf8);
+                std::cout << "Inverse: " << utf8 << std::endl;
+                hfhe.hypermorphicDecryptMessage({encryptedExponentiate}, lattice).toUTF8String(utf8);
+                std::cout << "Exponentiate: " << utf8 << std::endl;
+                hfhe.hypermorphicDecryptMessage({encryptedLogarithm}, lattice).toUTF8String(utf8);
+                std::cout << "Logarithm: " << utf8 << std::endl;
+                hfhe.hypermorphicDecryptMessage({encryptedSquareRoot}, lattice).toUTF8String(utf8);
+                std::cout << "Square Root: " << utf8 << std::endl;
+                hfhe.hypermorphicDecryptMessage({encryptedAbsolute}, lattice).toUTF8String(utf8);
+                std::cout << "Absolute: " << utf8 << std::endl;
+                    hfhe.hypermorphicDecryptMessage({encryptedMinimum}, lattice).toUTF8String(utf8);
+                    std::cout << "Minimum: " << utf8 << std::endl;
+                    hfhe.hypermorphicDecryptMessage({encryptedMaximum}, lattice).toUTF8String(utf8);
+                    std::cout << "Maximum: " << utf8 << std::endl;
+
+                    // Demonstrate holomorphic operations
+                    auto holomorphicSum = hfhe.homomorphicAdd(encryptedChar1, encryptedChar2);
+                    auto holomorphicProduct = hfhe.homomorphicMultiply(encryptedChar1, encryptedChar2);
+                    auto holomorphicExponentiate = hfhe.holomorphicExponentiate(encryptedChar1, encryptedChar2);
+
+                    std::cout << "\nHolomorphic Operations Results:" << std::endl;
+                    hfhe.hypermorphicDecryptMessage({holomorphicSum}, lattice).toUTF8String(utf8);
+                    std::cout << "Sum: " << utf8 << std::endl;
+                    hfhe.hypermorphicDecryptMessage({holomorphicProduct}, lattice).toUTF8String(utf8);
+                    std::cout << "Product: " << utf8 << std::endl;
+                    hfhe.hypermorphicDecryptMessage({holomorphicExponentiate}, lattice).toUTF8String(utf8);
+                    std::cout << "Exponentiate: " << utf8 << std::endl;
+
+                    // Demonstrate homomorphic evaluation
+                    auto encryptedEvaluated = hfhe.homomorphicEvaluate(encrypted, [](const std::vector<std::vector<std::complex<double>>>& data) {
+                        std::vector<std::complex<double>> result(data[0].size());
+                        for (size_t i = 0; i < data[0].size(); ++i) {
+                            std::complex<double> sum(0, 0);
+                            for (const auto& symbol : data) {
+                                sum += symbol[i];
+                            }
+                            result[i] = sum;
+                        }
+                        return result;
+                    });
+
+                    std::cout << "\nHomomorphic Evaluation Result:" << std::endl;
+                    hfhe.hypermorphicDecryptMessage({encryptedEvaluated}, lattice).toUTF8String(utf8);
+                    std::cout << "Evaluated: " << utf8 << std::endl;
+
+                    // Demonstrate homomorphic comparison
+                    bool isLess = hfhe.homomorphicCompare(encryptedChar1, encryptedChar2);
+                    bool isEqual = hfhe.homomorphicEqual(encryptedChar1, encryptedChar2);
+
+                    std::cout << "\nHomomorphic Comparison Results:" << std::endl;
+                    std::cout << "Is Less: " << (isLess ? "Yes" : "No") << std::endl;
+                    std::cout << "Is Equal: " << (isEqual ? "Yes" : "No") << std::endl;
+
+                    // Demonstrate complexity generation
+                    std::cout << "\nComplexity Generation:" << std::endl;
+                    auto complexity = hfhe.generateComplexity();
+                    std::cout << "Generated Complexity: ";
+                    for (const auto& digit : complexity) {
+                        std::cout << digit << " ";
+                    }
+                    std::cout << std::endl;
+
+                    // Demonstrate LatticeSymbol operations with colors
+                    std::vector<std::shared_ptr<LatticeSymbolBase>> encryptedSymbols;
+                    for (const auto& encryptedSymbol : encrypted) {
+                        auto symbol = std::make_shared<LatticeSymbol>();
+                        symbol->setEncrypted(encryptedSymbol);
+                        symbol->setColors({"Red", "Green", "Blue"}); // Set colors for each symbol
+                        symbol->setComplexity({1});
+                        encryptedSymbols.push_back(symbol);
+                    }
+
+                    auto foldedSum = hfhe.foldAddition(encryptedSymbols);
+                    auto foldedProduct = hfhe.foldMultiplication(encryptedSymbols);
+                    auto foldedRotated = hfhe.foldRotation(encryptedSymbols, M_PI / 4);
+
+                    std::cout << "\nLatticeSymbol Operations Results:" << std::endl;
+                    hfhe.hypermorphicDecryptMessage({foldedSum->getEncrypted()}, lattice).toUTF8String(utf8);
+                    std::cout << "Folded Sum: " << utf8 << std::endl;
+                    hfhe.hypermorphicDecryptMessage({foldedProduct->getEncrypted()}, lattice).toUTF8String(utf8);
+                    std::cout << "Folded Product: " << utf8 << std::endl;
+                    hfhe.hypermorphicDecryptMessage({foldedRotated->getEncrypted()}, lattice).toUTF8String(utf8);
+                    std::cout << "Folded Rotated: " << utf8 << std::endl;
+
+                    // Display colors of the folded symbols
+                    std::cout << "\nColors of Folded Symbols:" << std::endl;
+                    std::cout << "Folded Sum Colors: ";
+                    for (const auto& color : foldedSum->getColors()) {
+                        std::cout << color << " ";
+                    }
+                    std::cout << std::endl;
+
+                    std::cout << "Folded Product Colors: ";
+                    for (const auto& color : foldedProduct->getColors()) {
+                        std::cout << color << " ";
+                    }
+                    std::cout << std::endl;
+
+                    std::cout << "Folded Rotated Colors: ";
+                    for (const auto& color : foldedRotated->getColors()) {
+                        std::cout << color << " ";
+                    }
+                    std::cout << std::endl;
+
+                    // Performance measurements
+                    auto start = std::chrono::high_resolution_clock::now();
+                    hfhe.hypermorphicEncryptMessage(message, lattice);
+                    auto end = std::chrono::high_resolution_clock::now();
+                    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+                    std::cout << "\nPerformance Measurements:" << std::endl;
+                    std::cout << "Encryption Time: " << duration.count() << " microseconds" << std::endl;
+
+                    start = std::chrono::high_resolution_clock::now();
+                    hfhe.hypermorphicDecryptMessage(encrypted, lattice);
+                    end = std::chrono::high_resolution_clock::now();
+                    duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+                    std::cout << "Decryption Time: " << duration.count() << " microseconds" << std::endl;
+
+                    return 0;
+                }
+
+
+
